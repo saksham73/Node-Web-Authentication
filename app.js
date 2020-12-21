@@ -152,3 +152,8 @@ app.post("/register",function(req,res){
 app.listen('3000',function(){
     console.log("App started on port 3000");
 });
+
+app.get("/logout",function(req,res){
+    req.logout();
+    res.redirect("/");
+});
