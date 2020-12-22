@@ -11,18 +11,21 @@ const passportLocalMongoose = require('passport-local-mongoose');
 //const md5 = require("md5"); // used for hashing passwords (Level-2 Security)
 //const encrypt = require('mongoose-encryption'); //Used for Encrypting passwords(level-1 security)
 //const saltRounds = 10;
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const findOrCreate = require('mongoose-findorcreate');
 
 const app = express();
 app.use(bodyParser.urlencoded( {extended : true}));
 app.set('view engnie','ejs');
 app.use(express.static('public'));
 app.use(session({
-    secret: 'Session Secret',
+    secret: process.env.EXPRESS_SESSION_SECRET,
     resave: false,
     saveUninitialized: false
   }));
 app.use(passport.initialize());
 app.use(passport.session());
+
 
 mongoose.connect(process.env.MONGO_URI,{
     useNewUrlParser : true,
@@ -31,11 +34,12 @@ mongoose.connect(process.env.MONGO_URI,{
 
 const userSchema = new mongoose.Schema({
     username: String,
-    password : String
+    password : String,
+    googleId : String
 });
 
 userSchema.plugin(passportLocalMongoose);
-
+userSchema.plugin(findOrCreate);
 //const secret = process.env.SECRET;
 //userSchema.plugin(encrypt , {secret : secret, encryptedFields : ["password"]});
 
@@ -47,14 +51,53 @@ passport.use(User.createStrategy());
     }, function (req, username, password, done) {
          var email = req.body.email;
     }));*/ 
-passport.serializeUser(User.serializeUser()); // to serialize means - creating cookie and stuffing it up with session credentials.
-passport.deserializeUser(User.deserializeUser());
 
+//this serialization works only for local serialization.
+/*passport.serializeUser(User.serializeUser()); // to serialize means - creating cookie and stuffing it up with session credentials.
+passport.deserializeUser(User.deserializeUser());*/
 
+//to make serialization work for all kind of authentication we use serialization given on passport.js documentation.
+passport.serializeUser(function(user, done) {
+    done(null, user.id);
+  });
+  
+  passport.deserializeUser(function(id, done) {
+    User.findById(id, function(err, user) {
+      done(err, user);
+    });
+  });
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/secrets",
+    userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo"
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    console.log(profile);
+
+    User.findOrCreate({ googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
 
 app.get("/",function(req,res){
     res.render("home.ejs");
 });
+
+//On google servers authentication(uses google strategy defined above).
+app.get("/auth/google",
+  passport.authenticate('google', { scope: ['profile'] }));
+
+//Once Authenticated on google servers, we get rediected to this route and authenticate the user on our server to create session for his/her browsing session.
+app.get("/auth/google/secrets", 
+  passport.authenticate('google', { failureRedirect: "/login" }), //.authenticate uses serialize to create session for user.
+  function(req, res) {
+    // Successful authentication, redirect secrets(basically let user enter the app).
+    console.log("going to secrets");
+    res.redirect("/secrets");
+  });
 
 app.get("/login",function(req,res){
     res.render("login.ejs");
@@ -62,8 +105,10 @@ app.get("/login",function(req,res){
 
 app.get("/secrets",function(req,res){
     if(req.isAuthenticated()){
+        console.log("Authenticated");
         res.render("secrets.ejs");
     }else{
+        console.log("Not authenticated");
         res.redirect("/login");
     }
 });
@@ -154,6 +199,6 @@ app.listen('3000',function(){
 });
 
 app.get("/logout",function(req,res){
-    req.logout();
+    req.logout();   //uses deserialize to vlear the cookie or session created for user.
     res.redirect("/");
 });
