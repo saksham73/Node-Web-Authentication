@@ -133,13 +133,17 @@ app.get("/login",function(req,res){
 });
 
 app.get("/secrets",function(req,res){
-    if(req.isAuthenticated()){
-        console.log("Authenticated");
-        res.render("secrets.ejs");
-    }else{
-        console.log("Not authenticated");
-        res.redirect("/login");
-    }
+    User.find({ secret : {$ne : null}}, function(err,foundUsers){
+        if(err){
+            console.log(err);
+        }else{
+            if(foundUsers){
+                res.render("secrets.ejs",{
+                    usersWithSecrets : foundUsers
+                })
+            }
+        }
+    });
 });
 
 app.get("/submit",function(req,res){
